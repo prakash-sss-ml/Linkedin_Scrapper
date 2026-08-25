@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>LinkedIn Job Recorder</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: #f3f6f8;
+            color: #1f2937;
+            font-family:
+                Arial,
+                Helvetica,
+                sans-serif;
+        }
+
+        .page {
+            width: min(1050px, calc(100% - 32px));
+            margin: 32px auto;
+        }
+
+        .card {
+            background: #ffffff;
+            border: 1px solid #dce3e8;
+            border-radius: 14px;
+            padding: 28px;
+            box-shadow:
+                0 8px 24px rgba(0, 0, 0, 0.08);
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 28px;
+        }
+
+        .description {
+            margin: 0 0 24px;
+            color: #5f6b76;
+            line-height: 1.6;
+        }
+
+        .instructions {
+            margin-bottom: 22px;
+            padding: 16px 18px;
+            background: #eef6ff;
+            border-left: 4px solid #0a66c2;
+            border-radius: 8px;
+            line-height: 1.6;
+        }
+
+        .button-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        button,
+        .download-link {
+            min-height: 44px;
+            padding: 11px 20px;
+            border: 0;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+        }
+
+        #startButton {
+            background: #0a66c2;
+            color: #ffffff;
+        }
+
+        #stopButton {
+            background: #c62828;
+            color: #ffffff;
+        }
+
+        .download-link {
+            background: #18794e;
+            color: #ffffff;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .status-box {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-height: 56px;
+            margin-bottom: 20px;
+            padding: 14px 16px;
+            border: 1px solid #d7dee4;
+            border-radius: 8px;
+            background: #fafbfc;
+        }
+
+        .status-indicator {
+            width: 13px;
+            height: 13px;
+            flex: 0 0 13px;
+            border-radius: 50%;
+            background: #7b8794;
+        }
+
+        .status-indicator.recording {
+            background: #d32f2f;
+            animation: pulse 1.2s infinite;
+        }
+
+        .status-indicator.processing {
+            background: #f59e0b;
+            animation: pulse 1.2s infinite;
+        }
+
+        .status-indicator.success {
+            background: #15803d;
+        }
+
+        .status-indicator.error {
+            background: #dc2626;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.35;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        .preview-container {
+            margin-top: 20px;
+        }
+
+        .preview-title {
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        video {
+            width: 100%;
+            max-height: 520px;
+            background: #111827;
+            border-radius: 10px;
+            border: 1px solid #cbd5e1;
+        }
+
+        .settings {
+            display: grid;
+            grid-template-columns:
+                repeat(auto-fit, minmax(180px, 1fr));
+            gap: 14px;
+            margin: 22px 0;
+            padding: 18px;
+            border: 1px solid #e0e6eb;
+            border-radius: 10px;
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+        }
+
+        .field label {
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .field input {
+            width: 100%;
+            height: 40px;
+            padding: 8px 10px;
+            border: 1px solid #b9c4ce;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .progress {
+            width: 100%;
+            height: 10px;
+            margin-top: 12px;
+            overflow: hidden;
+            border-radius: 8px;
+            background: #e5e7eb;
+        }
+
+        .progress-bar {
+            width: 0;
+            height: 100%;
+            background: #0a66c2;
+            transition: width 0.3s ease;
+        }
+
+        .error-message {
+            margin-top: 14px;
+            padding: 14px;
+            color: #991b1b;
+            background: #fee2e2;
+            border-radius: 8px;
+            white-space: pre-wrap;
+        }
+
+        .result-details {
+            margin-top: 14px;
+            padding: 14px;
+            color: #14532d;
+            background: #dcfce7;
+            border-radius: 8px;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+
+<body>
+    <main class="page">
+        <section class="card">
+            <h1>LinkedIn Job Recorder</h1>
+
+            <p class="description">
+                Record the LinkedIn window or browser tab.
+                When recording stops, the video is uploaded
+                automatically and the extracted Excel file is downloaded.
+            </p>
+
+            <div class="instructions">
+                <strong>Recording steps:</strong><br>
+                1. Click <strong>Start Recording</strong>.<br>
+                2. Select the LinkedIn tab or browser window.<br>
+                3. Open job posts and scroll slowly through each description.<br>
+                4. Click <strong>Stop Recording</strong> or use the browser's
+                <strong>Stop sharing</strong> button.<br>
+                5. Wait for the Excel file to download automatically.
+            </div>
+
+            <div class="settings">
+                <div class="field">
+                    <label for="sampleInterval">
+                        Frame interval
+                    </label>
+
+                    <input
+                        id="sampleInterval"
+                        type="number"
+                        value="1.0"
+                        min="0.25"
+                        max="10"
+                        step="0.25"
+                    >
+                </div>
+
+                <div class="field">
+                    <label for="cropLeft">
+                        Crop left
+                    </label>
+
+                    <input
+                        id="cropLeft"
+                        type="number"
+                        value="0.075"
+                        min="0"
+                        max="0.95"
+                        step="0.005"
+                    >
+                </div>
+
+                <div class="field">
+                    <label for="cropRight">
+                        Crop right
+                    </label>
+
+                    <input
+                        id="cropRight"
+                        type="number"
+                        value="0.505"
+                        min="0.05"
+                        max="1"
+                        step="0.005"
+                    >
+                </div>
+
+                <div class="field">
+                    <label for="cropTop">
+                        Crop top
+                    </label>
+
+                    <input
+                        id="cropTop"
+                        type="number"
+                        value="0.145"
+                        min="0"
+                        max="0.95"
+                        step="0.005"
+                    >
+                </div>
+
+                <div class="field">
+                    <label for="cropBottom">
+                        Crop bottom
+                    </label>
+
+                    <input
+                        id="cropBottom"
+                        type="number"
+                        value="0.985"
+                        min="0.05"
+                        max="1"
+                        step="0.005"
+                    >
+                </div>
+            </div>
+
+            <div class="button-row">
+                <button
+                    id="startButton"
+                    type="button"
+                >
+                    Start Recording
+                </button>
+
+                <button
+                    id="stopButton"
+                    type="button"
+                    disabled
+                >
+                    Stop Recording
+                </button>
+
+                <a
+                    id="downloadLink"
+                    class="download-link hidden"
+                    href="#"
+                >
+                    Download Excel
+                </a>
+            </div>
+
+            <div class="status-box">
+                <span
+                    id="statusIndicator"
+                    class="status-indicator"
+                ></span>
+
+                <span id="statusText">
+                    Ready to record
+                </span>
+            </div>
+
+            <div
+                id="progress"
+                class="progress hidden"
+            >
+                <div
+                    id="progressBar"
+                    class="progress-bar"
+                ></div>
+            </div>
+
+            <div
+                id="errorMessage"
+                class="error-message hidden"
+            ></div>
+
+            <div
+                id="resultDetails"
+                class="result-details hidden"
+            ></div>
+
+            <div class="preview-container">
+                <div class="preview-title">
+                    Screen preview
+                </div>
+
+                <video
+                    id="preview"
+                    autoplay
+                    muted
+                    playsinline
+                ></video>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        "use strict";
+
+        const startButton =
+            document.getElementById("startButton");
+
+        const stopButton =
+            document.getElementById("stopButton");
+
+        const downloadLink =
+            document.getElementById("downloadLink");
+
+        const preview =
+            document.getElementById("preview");
+
+        const statusText =
+            document.getElementById("statusText");
+
+        const statusIndicator =
+            document.getElementById("statusIndicator");
+
+        const errorMessage =
+            document.getElementById("errorMessage");
+
+        const resultDetails =
+            document.getElementById("resultDetails");
+
+        const progress =
+            document.getElementById("progress");
+
+        const progressBar =
+            document.getElementById("progressBar");
+
+        let displayStream = null;
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let isStopping = false;
+        let excelObjectUrl = null;
+
+        const USER_ID_STORAGE_KEY =
+            "linkedin_job_recorder_user_id";
+
+        function getOrCreateUserId() {
+            let userId = localStorage.getItem(
+                USER_ID_STORAGE_KEY
+            );
+
+            if (userId) {
+                return userId;
+            }
+
+            if (
+                window.crypto &&
+                typeof window.crypto.randomUUID === "function"
+            ) {
+                userId = window.crypto.randomUUID();
+            } else {
+                // UUID v4 fallback for older browsers.
+                userId =
+                    "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
+                        .replace(/[xy]/g, character => {
+                            const randomValue =
+                                Math.floor(Math.random() * 16);
+                            const value =
+                                character === "x"
+                                    ? randomValue
+                                    : (randomValue & 0x3) | 0x8;
+                            return value.toString(16);
+                        });
+            }
+
+            localStorage.setItem(
+                USER_ID_STORAGE_KEY,
+                userId
+            );
+
+            return userId;
+        }
+
+        startButton.addEventListener(
+            "click",
+            startRecording
+        );
+
+        stopButton.addEventListener(
+            "click",
+            stopRecording
+        );
+
+        async function startRecording() {
+            resetResult();
+
+            if (
+                !navigator.mediaDevices ||
+                !navigator.mediaDevices.getDisplayMedia
+            ) {
+                showError(
+                    "Screen recording is not supported by this browser. " +
+                    "Open this page using a recent version of Chrome or Edge."
+                );
+
+                return;
+            }
+
+            try {
+                updateStatus(
+                    "Select the LinkedIn browser tab or window",
+                    "processing"
+                );
+
+                displayStream =
+                    await navigator.mediaDevices.getDisplayMedia({
+                        video: {
+                            frameRate: {
+                                ideal: 15,
+                                max: 20
+                            }
+                        },
+                        audio: false
+                    });
+
+                preview.srcObject = displayStream;
+
+                recordedChunks = [];
+                isStopping = false;
+
+                const mimeType = getSupportedMimeType();
+
+                const recorderOptions = {
+                    videoBitsPerSecond: 4_000_000
+                };
+
+                if (mimeType) {
+                    recorderOptions.mimeType = mimeType;
+                }
+
+                mediaRecorder = new MediaRecorder(
+                    displayStream,
+                    recorderOptions
+                );
+
+                mediaRecorder.addEventListener(
+                    "dataavailable",
+                    event => {
+                        if (
+                            event.data &&
+                            event.data.size > 0
+                        ) {
+                            recordedChunks.push(
+                                event.data
+                            );
+                        }
+                    }
+                );
+
+                mediaRecorder.addEventListener(
+                    "stop",
+                    handleRecordingStopped
+                );
+
+                mediaRecorder.addEventListener(
+                    "error",
+                    event => {
+                        const message =
+                            event.error?.message ||
+                            "Screen recording failed";
+
+                        showError(message);
+                    }
+                );
+
+                const videoTrack =
+                    displayStream.getVideoTracks()[0];
+
+                if (videoTrack) {
+                    videoTrack.addEventListener(
+                        "ended",
+                        () => {
+                            if (
+                                mediaRecorder &&
+                                mediaRecorder.state === "recording"
+                            ) {
+                                stopRecording();
+                            }
+                        }
+                    );
+                }
+
+                mediaRecorder.start(1000);
+
+                startButton.disabled = true;
+                stopButton.disabled = false;
+
+                updateStatus(
+                    "Recording LinkedIn. Open and scroll through job posts.",
+                    "recording"
+                );
+
+            } catch (error) {
+                stopAllTracks();
+
+                if (
+                    error.name === "NotAllowedError"
+                ) {
+                    showError(
+                        "Screen sharing was cancelled or permission was denied."
+                    );
+                } else {
+                    showError(
+                        error.message ||
+                        "Unable to start screen recording"
+                    );
+                }
+            }
+        }
+
+        function stopRecording() {
+            if (
+                isStopping ||
+                !mediaRecorder
+            ) {
+                return;
+            }
+
+            isStopping = true;
+            stopButton.disabled = true;
+
+            updateStatus(
+                "Finishing recording...",
+                "processing"
+            );
+
+            if (
+                mediaRecorder.state === "recording" ||
+                mediaRecorder.state === "paused"
+            ) {
+                mediaRecorder.stop();
+            } else {
+                handleRecordingStopped();
+            }
+        }
+
+        async function handleRecordingStopped() {
+            stopAllTracks();
+
+            startButton.disabled = true;
+            stopButton.disabled = true;
+
+            if (recordedChunks.length === 0) {
+                startButton.disabled = false;
+
+                showError(
+                    "The recording did not contain video data."
+                );
+
+                return;
+            }
+
+            const recorderMimeType =
+                mediaRecorder?.mimeType ||
+                "video/webm";
+
+            const videoBlob = new Blob(
+                recordedChunks,
+                {
+                    type: recorderMimeType
+                }
+            );
+
+            await uploadRecording(videoBlob);
+
+            mediaRecorder = null;
+            recordedChunks = [];
+            isStopping = false;
+        }
+
+        async function uploadRecording(videoBlob) {
+            try {
+                updateStatus(
+                    "Uploading recording and extracting job details...",
+                    "processing"
+                );
+
+                showProgress(20);
+
+                const formData = new FormData();
+
+                const timestamp =
+                    new Date()
+                        .toISOString()
+                        .replace(/[:.]/g, "-");
+
+                formData.append(
+                    "file",
+                    videoBlob,
+                    `linkedin_recording_${timestamp}.webm`
+                );
+
+                // Keep one persistent Excel workbook per browser/user.
+                // The same browser sends the same UUID on every future run.
+                formData.append(
+                    "user_id",
+                    getOrCreateUserId()
+                );
+
+                formData.append(
+                    "sample_interval_seconds",
+                    readNumber(
+                        "sampleInterval",
+                        1.0
+                    )
+                );
+
+                formData.append(
+                    "crop_left_ratio",
+                    readNumber(
+                        "cropLeft",
+                        0.075
+                    )
+                );
+
+                formData.append(
+                    "crop_right_ratio",
+                    readNumber(
+                        "cropRight",
+                        0.505
+                    )
+                );
+
+                formData.append(
+                    "crop_top_ratio",
+                    readNumber(
+                        "cropTop",
+                        0.145
+                    )
+                );
+
+                formData.append(
+                    "crop_bottom_ratio",
+                    readNumber(
+                        "cropBottom",
+                        0.985
+                    )
+                );
+
+                formData.append(
+                    "keep_artifacts",
+                    "false"
+                );
+
+                showProgress(40);
+
+                const response = await fetch(
+                    "/api/jobs/extract",
+                    {
+                        method: "POST",
+                        body: formData
+                    }
+                );
+
+                showProgress(80);
+
+                if (!response.ok) {
+                    throw new Error(
+                        await getErrorMessage(response)
+                    );
+                }
+
+                const excelBlob =
+                    await response.blob();
+
+                if (
+                    !excelBlob ||
+                    excelBlob.size === 0
+                ) {
+                    throw new Error(
+                        "The server returned an empty Excel file."
+                    );
+                }
+
+                const jobsDetected =
+                    response.headers.get(
+                        "X-Jobs-Detected"
+                    ) || "0";
+
+                const framesProcessed =
+                    response.headers.get(
+                        "X-Frames-Processed"
+                    ) || "0";
+
+                const extractionErrors =
+                    response.headers.get(
+                        "X-Extraction-Errors"
+                    ) || "0";
+
+                const fileName =
+                    getResponseFileName(response) ||
+                    `linkedin_jobs_${timestamp}.xlsx`;
+
+                prepareExcelDownload(
+                    excelBlob,
+                    fileName
+                );
+
+                showProgress(100);
+
+                updateStatus(
+                    "Extraction completed. Excel downloaded.",
+                    "success"
+                );
+
+                resultDetails.innerHTML = `
+                    <strong>Extraction completed</strong><br>
+                    Jobs detected: ${escapeHtml(jobsDetected)}<br>
+                    Frames processed: ${escapeHtml(framesProcessed)}<br>
+                    Extraction warnings: ${escapeHtml(extractionErrors)}
+                `;
+
+                resultDetails.classList.remove(
+                    "hidden"
+                );
+
+                startButton.disabled = false;
+
+            } catch (error) {
+                startButton.disabled = false;
+
+                showError(
+                    error.message ||
+                    "The recording could not be processed."
+                );
+            }
+        }
+
+        function prepareExcelDownload(
+            blob,
+            fileName
+        ) {
+            if (excelObjectUrl) {
+                URL.revokeObjectURL(
+                    excelObjectUrl
+                );
+            }
+
+            excelObjectUrl =
+                URL.createObjectURL(blob);
+
+            downloadLink.href =
+                excelObjectUrl;
+
+            downloadLink.download =
+                fileName;
+
+            downloadLink.classList.remove(
+                "hidden"
+            );
+
+            // Automatically download the Excel file.
+            downloadLink.click();
+        }
+
+        function getSupportedMimeType() {
+            const candidates = [
+                "video/webm;codecs=vp9",
+                "video/webm;codecs=vp8",
+                "video/webm"
+            ];
+
+            for (const candidate of candidates) {
+                if (
+                    MediaRecorder.isTypeSupported(
+                        candidate
+                    )
+                ) {
+                    return candidate;
+                }
+            }
+
+            return "";
+        }
+
+        function stopAllTracks() {
+            if (!displayStream) {
+                return;
+            }
+
+            for (
+                const track
+                of displayStream.getTracks()
+            ) {
+                track.stop();
+            }
+
+            displayStream = null;
+            preview.srcObject = null;
+        }
+
+        function updateStatus(
+            message,
+            state = ""
+        ) {
+            statusText.textContent =
+                message;
+
+            statusIndicator.className =
+                "status-indicator";
+
+            if (state) {
+                statusIndicator.classList.add(
+                    state
+                );
+            }
+        }
+
+        function showError(message) {
+            updateStatus(
+                "An error occurred",
+                "error"
+            );
+
+            errorMessage.textContent =
+                message;
+
+            errorMessage.classList.remove(
+                "hidden"
+            );
+
+            progress.classList.add(
+                "hidden"
+            );
+
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            isStopping = false;
+        }
+
+        function resetResult() {
+            errorMessage.textContent = "";
+            errorMessage.classList.add(
+                "hidden"
+            );
+
+            resultDetails.innerHTML = "";
+            resultDetails.classList.add(
+                "hidden"
+            );
+
+            downloadLink.classList.add(
+                "hidden"
+            );
+
+            progress.classList.add(
+                "hidden"
+            );
+
+            progressBar.style.width = "0%";
+
+            if (excelObjectUrl) {
+                URL.revokeObjectURL(
+                    excelObjectUrl
+                );
+
+                excelObjectUrl = null;
+            }
+        }
+
+        function showProgress(percent) {
+            progress.classList.remove(
+                "hidden"
+            );
+
+            progressBar.style.width =
+                `${percent}%`;
+        }
+
+        function readNumber(
+            elementId,
+            fallback
+        ) {
+            const element =
+                document.getElementById(
+                    elementId
+                );
+
+            const value =
+                Number(element.value);
+
+            return Number.isFinite(value)
+                ? String(value)
+                : String(fallback);
+        }
+
+        async function getErrorMessage(
+            response
+        ) {
+            const contentType =
+                response.headers.get(
+                    "content-type"
+                ) || "";
+
+            if (
+                contentType.includes(
+                    "application/json"
+                )
+            ) {
+                const data =
+                    await response.json();
+
+                return (
+                    data.detail ||
+                    data.message ||
+                    JSON.stringify(data)
+                );
+            }
+
+            const text =
+                await response.text();
+
+            return (
+                text ||
+                `Server returned ${response.status}`
+            );
+        }
+
+        function getResponseFileName(
+            response
+        ) {
+            const disposition =
+                response.headers.get(
+                    "content-disposition"
+                );
+
+            if (!disposition) {
+                return "";
+            }
+
+            const utfMatch =
+                disposition.match(
+                    /filename\*=UTF-8''([^;]+)/i
+                );
+
+            if (utfMatch) {
+                return decodeURIComponent(
+                    utfMatch[1]
+                );
+            }
+
+            const basicMatch =
+                disposition.match(
+                    /filename="?([^"]+)"?/i
+                );
+
+            return basicMatch
+                ? basicMatch[1]
+                : "";
+        }
+
+        function escapeHtml(value) {
+            return String(value)
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("'", "&#039;");
+        }
+
+        window.addEventListener(
+            "beforeunload",
+            () => {
+                stopAllTracks();
+
+                if (excelObjectUrl) {
+                    URL.revokeObjectURL(
+                        excelObjectUrl
+                    );
+                }
+            }
+        );
+    </script>
+</body>
+</html>
