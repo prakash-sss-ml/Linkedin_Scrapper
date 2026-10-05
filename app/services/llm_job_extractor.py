@@ -128,28 +128,46 @@ class LLMJobExtractor:
         timeout = (
             float(timeout_seconds)
             if timeout_seconds is not None
-            else self._env_float("OPENAI_TIMEOUT_SECONDS", 60.0)
+            else self._env_float("OPENAI_TIMEOUT_SECONDS", 180.0)
         )
 
+        self.timeout_seconds = max(30.0, float(timeout))
+
+        # Smaller OCR payloads reduce latency and make timeout recovery safer.
         self.max_batch_chars = max(
             8000,
             int(
                 max_batch_chars
                 if max_batch_chars is not None
-                else self._env_int("OPENAI_JOB_MAX_BATCH_CHARS", 55000)
+                else self._env_int("OPENAI_JOB_MAX_BATCH_CHARS", 28000)
             ),
         )
 
         self.overlap_frames = max(0, int(overlap_frames))
+
+        self.max_retries = max(
+            0,
+            self._env_int("OPENAI_MAX_RETRIES", 1),
+        )
+
+        self.max_recovery_depth = max(
+            0,
+            self._env_int("OPENAI_TIMEOUT_RECOVERY_DEPTH", 2),
+        )
+
         self.skill_catalog = self._load_skills(Path(skills_file))
 
         self.client = OpenAI(
             api_key=self.api_key,
-            timeout=timeout,
-            max_retries=2,
+            timeout=self.timeout_seconds,
+            max_retries=self.max_retries,
         )
 
-        # Actual token usage returned by the OpenAI Responses API.
+        # Successful response usage comes from the Responses API.
+        # Client calls/failures are tracked separately because timed-out calls
+        # do not return a response object containing token usage.
+        self._client_call_count = 0
+        self._failed_request_count = 0
         self._usage_request_count = 0
         self._usage_input_tokens = 0
         self._usage_cached_input_tokens = 0
@@ -159,9 +177,16 @@ class LLMJobExtractor:
         self._usage_response_model = self.model
 
         LOGGER.info(
-            "Initialized OpenAI LinkedIn extractor model=%s max_batch_chars=%s",
+            (
+                "Initialized OpenAI LinkedIn extractor model=%s "
+                "max_batch_chars=%s timeout_seconds=%s max_retries=%s "
+                "timeout_recovery_depth=%s"
+            ),
             self.model,
             self.max_batch_chars,
+            self.timeout_seconds,
+            self.max_retries,
+            self.max_recovery_depth,
         )
 
     def close(self) -> None:
@@ -189,36 +214,13 @@ class LLMJobExtractor:
         all_jobs: list[JobRecord] = []
 
         for batch_index, batch_frames in enumerate(batches, start=1):
-            batch_lines = self._source_lines(batch_frames)
-            transcript = self._build_transcript(batch_frames)
-
-            if not transcript.strip():
-                continue
-
-            LOGGER.info(
-                "OpenAI extraction batch=%s/%s frames=%s chars=%s model=%s",
-                batch_index,
-                len(batches),
-                len(batch_frames),
-                len(transcript),
-                self.model,
+            self._process_batch_with_recovery(
+                batch_frames=batch_frames,
+                source_video=source_video,
+                all_jobs=all_jobs,
+                batch_label=f"{batch_index}/{len(batches)}",
+                recovery_depth=0,
             )
-
-            parsed = self._extract_structured(transcript)
-
-            for raw_job in parsed.jobs:
-                if not raw_job.is_job_post:
-                    continue
-
-                job = self._to_job_record(
-                    raw_job=raw_job,
-                    source_lines=batch_lines,
-                    source_video=source_video,
-                    provisional_index=len(all_jobs) + 1,
-                )
-
-                if job is not None:
-                    all_jobs.append(job)
 
         jobs = self._deduplicate(all_jobs)
 
@@ -229,15 +231,166 @@ class LLMJobExtractor:
                 evidence.job_id = job.job_id
 
         LOGGER.info(
-            "OpenAI extraction completed source=%s batches=%s jobs=%s",
+            (
+                "OpenAI extraction completed source=%s batches=%s jobs=%s "
+                "client_calls=%s successful_responses=%s failed_requests=%s"
+            ),
             source_video,
             len(batches),
             len(jobs),
+            self._client_call_count,
+            self._usage_request_count,
+            self._failed_request_count,
         )
 
         return jobs
 
+    def _process_batch_with_recovery(
+        self,
+        batch_frames: list[FrameOcrResult],
+        source_video: str,
+        all_jobs: list[JobRecord],
+        batch_label: str,
+        recovery_depth: int,
+    ) -> None:
+        """Extract one batch and split it into smaller pieces if it times out."""
+        if not batch_frames:
+            return
+
+        batch_lines = self._source_lines(batch_frames)
+        transcript = self._build_transcript(batch_frames)
+
+        if not transcript.strip():
+            return
+
+        LOGGER.info(
+            (
+                "OpenAI extraction batch=%s recovery_depth=%s "
+                "frames=%s chars=%s model=%s"
+            ),
+            batch_label,
+            recovery_depth,
+            len(batch_frames),
+            len(transcript),
+            self.model,
+        )
+
+        try:
+            parsed = self._extract_structured(transcript)
+
+        except Exception as exc:
+            # The OpenAI SDK raises APITimeoutError when the read operation
+            # exceeds the configured timeout. Checking by class name keeps this
+            # compatible across SDK import layouts.
+            if exc.__class__.__name__ != "APITimeoutError":
+                raise
+
+            self._failed_request_count += 1
+
+            can_split = (
+                recovery_depth < self.max_recovery_depth
+                and len(batch_frames) >= 4
+            )
+
+            if can_split:
+                split_batches = self._split_batch_for_timeout(batch_frames)
+
+                if len(split_batches) == 2:
+                    LOGGER.warning(
+                        (
+                            "OpenAI timeout batch=%s frames=%s chars=%s. "
+                            "Splitting into smaller retry batches depth=%s/%s"
+                        ),
+                        batch_label,
+                        len(batch_frames),
+                        len(transcript),
+                        recovery_depth + 1,
+                        self.max_recovery_depth,
+                    )
+
+                    for split_index, split_frames in enumerate(
+                        split_batches,
+                        start=1,
+                    ):
+                        self._process_batch_with_recovery(
+                            batch_frames=split_frames,
+                            source_video=source_video,
+                            all_jobs=all_jobs,
+                            batch_label=f"{batch_label}.{split_index}",
+                            recovery_depth=recovery_depth + 1,
+                        )
+
+                    return
+
+            LOGGER.error(
+                (
+                    "OpenAI timeout could not be recovered batch=%s "
+                    "frames=%s chars=%s depth=%s error=%s"
+                ),
+                batch_label,
+                len(batch_frames),
+                len(transcript),
+                recovery_depth,
+                exc,
+            )
+            return
+
+        for raw_job in parsed.jobs:
+            if not raw_job.is_job_post:
+                continue
+
+            job = self._to_job_record(
+                raw_job=raw_job,
+                source_lines=batch_lines,
+                source_video=source_video,
+                provisional_index=len(all_jobs) + 1,
+            )
+
+            if job is not None:
+                all_jobs.append(job)
+
+    def _split_batch_for_timeout(
+        self,
+        frames: list[FrameOcrResult],
+    ) -> list[list[FrameOcrResult]]:
+        """Split a timed-out batch in half with a small boundary overlap."""
+        frame_count = len(frames)
+
+        if frame_count < 4:
+            return [frames]
+
+        midpoint = frame_count // 2
+
+        overlap = min(
+            self.overlap_frames,
+            max(0, midpoint - 1),
+            max(0, frame_count - midpoint - 1),
+        )
+
+        left_end = midpoint + overlap
+        right_start = midpoint - overlap
+
+        left = frames[:left_end]
+        right = frames[right_start:]
+
+        # Defensive fallback: never recurse with a child equal to the parent.
+        if (
+            not left
+            or not right
+            or len(left) >= frame_count
+            or len(right) >= frame_count
+        ):
+            left = frames[:midpoint]
+            right = frames[midpoint:]
+
+        if not left or not right:
+            return [frames]
+
+        return [left, right]
+
     def _extract_structured(self, transcript: str) -> ExtractedJobBatch:
+        self._client_call_count += 1
+
         response = self.client.responses.parse(
             model=self.model,
             instructions=SYSTEM_INSTRUCTIONS,
@@ -313,7 +466,9 @@ class LLMJobExtractor:
     def get_usage_summary(self) -> dict[str, int | str]:
         """Return accumulated OpenAI usage for the current recording."""
         return {
+            "client_call_count": self._client_call_count,
             "request_count": self._usage_request_count,
+            "failed_request_count": self._failed_request_count,
             "input_tokens": self._usage_input_tokens,
             "cached_input_tokens": self._usage_cached_input_tokens,
             "output_tokens": self._usage_output_tokens,

@@ -227,7 +227,9 @@ class LLMExtractionPipeline:
 
         jobs = []
         llm_usage: dict[str, int | str] = {
+            "client_call_count": 0,
             "request_count": 0,
+            "failed_request_count": 0,
             "input_tokens": 0,
             "cached_input_tokens": 0,
             "output_tokens": 0,
@@ -245,6 +247,20 @@ class LLMExtractionPipeline:
                     source_video=input_path.name,
                 )
                 llm_usage = llm_extractor.get_usage_summary()
+
+                failed_llm_requests = int(
+                    llm_usage.get("failed_request_count") or 0
+                )
+
+                if failed_llm_requests:
+                    LOGGER.warning(
+                        (
+                            "LLM extraction completed with recovered/skipped "
+                            "request failures count=%s source=%s"
+                        ),
+                        failed_llm_requests,
+                        input_path.name,
+                    )
 
         except Exception as exc:
             LOGGER.exception(
@@ -401,15 +417,17 @@ class LLMExtractionPipeline:
             (
                 "TOTAL OPENAI LLM USAGE FOR THIS RUN = %s TOKENS | "
                 "INPUT=%s | CACHED_INPUT=%s | OUTPUT=%s | "
-                "REASONING=%s | REQUESTS=%s | MODEL=%s | "
-                "ESTIMATED_COST_USD=%s"
+                "REASONING=%s | CLIENT_CALLS=%s | SUCCESSFUL_REQUESTS=%s | "
+                "FAILED_REQUESTS=%s | MODEL=%s | ESTIMATED_COST_USD=%s"
             ),
             int(llm_usage.get("total_tokens") or 0),
             int(llm_usage.get("input_tokens") or 0),
             int(llm_usage.get("cached_input_tokens") or 0),
             int(llm_usage.get("output_tokens") or 0),
             int(llm_usage.get("reasoning_tokens") or 0),
+            int(llm_usage.get("client_call_count") or 0),
             int(llm_usage.get("request_count") or 0),
+            int(llm_usage.get("failed_request_count") or 0),
             str(llm_usage.get("model") or "unknown"),
             cost_text,
         )
